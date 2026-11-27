@@ -25,7 +25,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       <div class="empty-state">
         <p><strong>データの読み込みエラー</strong></p>
         <p style="font-size:13px;margin-top:6px;">
-          <code>data.json</code> を生成した上でローカルサーバー（<code>npx serve .</code> 等）経由で開いてください。
+          <code>python scripts/build_data.py</code> を実行して <code>data.json</code> を生成した上で、<br>
+          ローカルサーバー経由で開いてください。
         </p>
       </div>
     `;
@@ -158,7 +159,8 @@ function getFilteredEvents() {
       if (!needsArr.includes(selectedNeed)) return false;
     }
     if (searchQuery) {
-      const haystack = `${ev.title} ${(ev.genres || []).join(' ')} ${ev.needs || ''}`.toLowerCase();
+      const pastText = (ev.pastTitles || []).map(p => p.title).join(' ');
+      const haystack = `${ev.title} ${pastText} ${(ev.genres || []).join(' ')} ${ev.needs || ''}`.toLowerCase();
       if (!haystack.includes(searchQuery)) return false;
     }
     return true;
@@ -167,6 +169,8 @@ function getFilteredEvents() {
   filtered.sort((a, b) => {
     const appA = a.applicants ?? a.cv;
     const appB = b.applicants ?? b.cv;
+    const exA = a.exactCv ?? a.cv;
+    const exB = b.exactCv ?? b.cv;
 
     switch (sortMode) {
       case 'cv_desc':
@@ -177,6 +181,8 @@ function getFilteredEvents() {
         return appB - appA || b.cv - a.cv || b.totalDates - a.totalDates;
       case 'app_asc':
         return appA - appB || a.cv - b.cv || b.totalDates - a.totalDates;
+      case 'exact_cv_desc':
+        return exB - exA || b.cv - a.cv || b.totalDates - a.totalDates;
       case 'dates_desc':
         return b.totalDates - a.totalDates || b.cv - a.cv;
       default:
@@ -218,10 +224,21 @@ function renderList() {
 
   listEl.innerHTML = slice.map((ev, index) => {
     const rank = index + 1;
-    // 少ない順表示のときは金銀銅メダルの装飾をつけない
     const rankClass = (!isAsc && rank <= 3) ? `rank-${rank}` : '';
     const applicants = ev.applicants ?? ev.cv;
+    const exactCv = ev.exactCv ?? ev.cv;
+    const pastCv = ev.pastCv ?? 0;
     const rate = totalStudents > 0 ? ((applicants / totalStudents) * 100).toFixed(1) : '0.0';
+
+    const cvBreakdown = pastCv > 0
+      ? `（現行 ${exactCv} + 旧枠 ${pastCv}）`
+      : '';
+
+    const pastHtml = (ev.pastTitles && ev.pastTitles.length > 0)
+      ? `<div style="font-size:11px;color:#64748b;background:#f8fafc;border-left:3px solid #94a3b8;padding:4px 8px;margin-bottom:8px;border-radius:4px;">
+          📌 旧枠・関連実績: ${ev.pastTitles.map(p => `${escapeHtml(p.title)}（${p.cv}件）`).join(' / ')}
+         </div>`
+      : '';
 
     const genresHtml = (ev.genres || [])
       .map(g => `<span class="genre-tag">${escapeHtml(g)}</span>`)
@@ -245,11 +262,12 @@ function renderList() {
         </div>
         <div class="card-body">
           <div class="card-meta-top">
-            <span class="cv-pill ${ev.cv === 0 ? 'zero' : ''}">🔥 延べCV ${ev.cv}件</span>
+            <span class="cv-pill ${ev.cv === 0 ? 'zero' : ''}">🔥 累計CV ${ev.cv}件${cvBreakdown}</span>
             <span class="rate-pill">👤 申込実人数 ${applicants}名（${rate}%）</span>
             ${genresHtml}
           </div>
           <h2 class="event-title">${escapeHtml(ev.title)}</h2>
+          ${pastHtml}
           ${ev.needs ? `<div class="event-needs">🎯 対象ニーズ: <strong>${escapeHtml(ev.needs)}</strong></div>` : ''}
           ${datesHtml ? `<div class="dates-box">${datesHtml}${extraDates}</div>` : ''}
           ${hasValidUrl ? `

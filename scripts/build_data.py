@@ -1,11 +1,72 @@
 import pandas as pd
 import json
 import re
+import unicodedata
 from collections import Counter
+from difflib import SequenceMatcher
 
 EVENTS_CSV = 'data/立命館大学支部14期_OC_イベントリスト - 閲覧用_最新版 (3).csv'
 CV_CSV = 'data/立命館大学支部14期_OCインフラ - エンターごとCV確認_累計.csv'
 OUTPUT_JSON = 'data.json'
+
+GENERIC_BRACKET_WORDS = (
+    '28卒', '27卒', 'web', '締切', '特典', 'アマギフ', '早期', '限定',
+    '1day', '対面', 'オンライン', '個別', '選考', '説明会', '最終', '募集'
+)
+GENERIC_SUFFIXES = {
+    '会社説明会', '説明会', '選考会', '座談会', 'インターンシップ',
+    '1day仕事体験', '社員fb付き', '本選考'
+}
+
+def norm(s):
+    s = unicodedata.normalize('NFKC', str(s).strip())
+    return re.sub(r'\s+', ' ', s)
+
+def strip_brackets_and_dates(s):
+    s_clean = re.sub(r'【[^】]*】', ' ', s)
+    s_clean = re.sub(r'\[[^\]]*\]', ' ', s_clean)
+    s_clean = re.sub(r'《[^》]*》', ' ', s_clean)
+    s_clean = re.sub(r'※[^※]*※', ' ', s_clean)
+    return re.sub(r'\s+', ' ', s_clean).strip()
+
+def extract_company_brackets(s):
+    brackets = re.findall(r'【([^】]+)】', s)
+    comps = []
+    for b in brackets:
+        b_low = b.lower()
+        if not any(g in b_low for g in GENERIC_BRACKET_WORDS) and len(b.strip()) >= 3:
+            comps.append(b.strip())
+    return comps
+
+def is_related_title(ev_norm, cv_norm):
+    if ev_norm == cv_norm:
+        return False
+
+    ev_comps = extract_company_brackets(ev_norm)
+    cv_comps = extract_company_brackets(cv_norm)
+    if ev_comps and not any(c in cv_norm for c in ev_comps):
+        return False
+    if cv_comps and not any(c in ev_norm for c in cv_comps):
+        return False
+
+    ev_suffix = ev_norm.split('|')[-1].strip() if '|' in ev_norm else ''
+    cv_suffix = cv_norm.split('|')[-1].strip() if '|' in cv_norm else ''
+    suffix_match = (
+        len(ev_suffix) >= 5 and len(cv_suffix) >= 5
+        and ev_suffix.lower() not in GENERIC_SUFFIXES
+        and cv_suffix.lower() not in GENERIC_SUFFIXES
+        and (
+            ev_suffix == cv_suffix
+            or (len(ev_suffix) >= 8 and len(cv_suffix) >= 8 and (ev_suffix in cv_suffix or cv_suffix in ev_suffix))
+        )
+    )
+
+    ev_core = strip_brackets_and_dates(ev_norm)
+    cv_core = strip_brackets_and_dates(cv_norm)
+    full_sim = SequenceMatcher(None, ev_norm, cv_norm).ratio()
+    core_sim = SequenceMatcher(None, ev_core, cv_core).ratio() if (len(ev_core) >= 14 and len(cv_core) >= 14) else 0
+
+    return suffix_match or full_sim >= 0.78 or core_sim >= 0.78
 
 def merge_genres(series):
     items = set()
@@ -45,20 +106,23 @@ def main():
     df_users = df_cv_raw.iloc[7:].copy()
     df_users_clean = df_users[~df_users[2].astype(str).str.contains('テスト', na=False)].copy()
 
-    # 1. 延べCV数（全セルカウント）と 2. ユニーク申込人数（学生ごとの重複除外カウント）を同時集計
+    # 学生ごとの申込履歴リスト（正規化済み）
+    user_event_lists = []
     total_cv_counter = Counter()
     unique_user_counter = Counter()
 
     for _, row in df_users_clean.iterrows():
         raw_vals = [
-            re.sub(r'\s+', ' ', str(v).strip())
+            norm(v)
             for v in row.iloc[4:].dropna()
             if str(v).strip() != ''
         ]
+        user_event_lists.append(raw_vals)
         total_cv_counter.update(raw_vals)
         unique_user_counter.update(set(raw_vals))
 
-    df_events['event_norm'] = df_events['イベント'].astype(str).str.strip().str.replace(r'\s+', ' ', regex=True)
+    all_cv_titles = list(total_cv_counter.keys())
+    df_events['event_norm'] = df_events['イベント'].map(norm)
 
     records = []
     for event_norm, grp in df_events.groupby('event_norm', sort=False):
@@ -66,14 +130,34 @@ def main():
         genres = merge_genres(grp['ジャンル'])
         needs = merge_needs(grp['ニーズ'])
         dates = merge_dates(grp)
-        cv_val = int(total_cv_counter.get(event_norm, 0))
-        app_val = int(unique_user_counter.get(event_norm, 0))
+
+        # 現行枠（完全一致）
+        exact_cv = int(total_cv_counter.get(event_norm, 0))
+        exact_app = int(unique_user_counter.get(event_norm, 0))
+
+        # 旧枠・別タイトル（類似・同一企業）の探索
+        related_titles = [t for t in all_cv_titles if is_related_title(event_norm, t)]
+        related_titles.sort(key=lambda t: -total_cv_counter[t])
+
+        past_cv = sum(int(total_cv_counter[t]) for t in related_titles)
+
+        # 現行枠＋旧枠を合算した合計値（ユニーク人数は同一学生の重複も除外して正確にカウント）
+        target_set = {event_norm} | set(related_titles)
+        total_cv = exact_cv + past_cv
+        total_app = sum(1 for u_list in user_event_lists if any(t in target_set for t in u_list))
 
         records.append({
             'id': str(first['ユニークキー']),
             'title': str(first['イベント']).strip(),
-            'cv': cv_val,
-            'applicants': app_val,
+            'cv': total_cv,
+            'applicants': total_app,
+            'exactCv': exact_cv,
+            'exactApplicants': exact_app,
+            'pastCv': past_cv,
+            'pastTitles': [
+                {'title': t, 'cv': int(total_cv_counter[t])}
+                for t in related_titles[:3]
+            ],
             'genres': genres,
             'needs': needs,
             'url': str(first['URL']).strip(),
@@ -92,7 +176,8 @@ def main():
     with open(OUTPUT_JSON, 'w', encoding='utf-8') as f:
         json.dump(output_data, f, ensure_ascii=False, separators=(',', ':'))
 
-    print(f"✅ 完了: {len(records)}件のデータを出力しました（延べCV・ユニーク申込人数対応）")
+    linked_count = sum(1 for r in records if r['pastCv'] > 0)
+    print(f"✅ 完了: {len(records)}件出力（うち {linked_count}件に旧枠・別タイトル実績を合算しました）")
 
 if __name__ == '__main__':
     main()
