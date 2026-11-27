@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>人気イベントランキング | エンカレッジ立命館支部</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="container header-inner">
+      <div class="header-badge">RANKING PORTAL</div>
+      <h1 class="header-title">人気イベントランキング</h1>
+      <p class="header-subtitle">実際の申込実績（CV数）をもとに、今みんなに選ばれているイベントをランキング形式でチェック！</p>
+      <div class="stats-bar" id="statsBar">
+        <div class="stat-item">
+          <span class="stat-label">掲載イベント数</span>
+          <span class="stat-value" id="statTotalEvents">-</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+          <span class="stat-label">集計対象学生数</span>
+          <span class="stat-value" id="statTotalStudents">-</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+          <span class="stat-label">累計申込CV数</span>
+          <span class="stat-value" id="statTotalCv">-</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container main-content">
+    <!-- 検索・フィルターエリア -->
+    <section class="filter-panel">
+      <div class="search-row">
+        <div class="search-box">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="searchInput" placeholder="イベント名・企業名・キーワードで検索..." />
+          <button type="button" id="clearSearchBtn" class="clear-btn hidden" title="クリア">×</button>
+        </div>
+
+        <div class="sort-box">
+          <label for="sortSelect">並び替え:</label>
+          <select id="sortSelect">
+            <option value="cv_desc">人気順（CV数が多い順）</option>
+            <option value="cv_rate_desc">申込率が高い順</option>
+            <option value="dates_desc">開催日程が多い順</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <div class="filter-label">ジャンルで絞り込み</div>
+        <div class="chip-list" id="genreChips"></div>
+      </div>
+
+      <div class="filter-group">
+        <div class="filter-label">就活ニーズで絞り込み</div>
+        <div class="chip-list" id="needChips"></div>
+      </div>
+
+      <div class="filter-footer">
+        <span class="result-count"><strong id="resultCount">0</strong> 件のイベントを表示中</span>
+        <button type="button" id="resetFiltersBtn" class="reset-btn">条件をすべてリセット</button>
+      </div>
+    </section>
+
+    <!-- ランキング一覧 -->
+    <section id="rankingList" class="ranking-list">
+      <div class="loading">データを読み込み中...</div>
+    </section>
+
+    <!-- もっと見るボタン -->
+    <div class="load-more-wrap" id="loadMoreWrap">
+      <button type="button" id="loadMoreBtn" class="load-more-btn">さらに表示する</button>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p>EN-COURAGE RITSUMEIKAN EVENT RANKING</p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
