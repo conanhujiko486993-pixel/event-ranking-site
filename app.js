@@ -16,11 +16,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     allEvents = data.events || [];
     totalStudents = data.totalStudents || 0;
 
-    // 全体ランキング順位を事前に付与（CV順）
-    allEvents.forEach((ev, idx) => {
-      ev.globalRank = idx + 1;
-    });
-
     renderStats();
     buildFilterChips();
     setupEventListeners();
@@ -30,8 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       <div class="empty-state">
         <p><strong>データの読み込みエラー</strong></p>
         <p style="font-size:13px;margin-top:6px;">
-          先に <code>python scripts/build_data.py</code> を実行して <code>data.json</code> を生成し、<br>
-          VS Code の Live Server 等のローカルサーバー経由で開いてください。
+          <code>data.json</code> を生成した上でローカルサーバー（<code>npx serve .</code> 等）経由で開いてください。
         </p>
       </div>
     `;
@@ -47,16 +41,13 @@ function renderStats() {
 }
 
 function buildFilterChips() {
-  // ジャンル集計（上位15個を表示）
   const genreMap = new Map();
   allEvents.forEach(ev => {
     (ev.genres || []).forEach(g => {
       genreMap.set(g, (genreMap.get(g) || 0) + 1);
     });
   });
-  const topGenres = [...genreMap.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 15);
+  const topGenres = [...genreMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
 
   const genreContainer = document.getElementById('genreChips');
   genreContainer.innerHTML = `<button type="button" class="chip active" data-genre="ALL">すべて</button>`;
@@ -69,7 +60,6 @@ function buildFilterChips() {
     genreContainer.appendChild(btn);
   });
 
-  // ニーズ集計
   const needMap = new Map();
   allEvents.forEach(ev => {
     if (!ev.needs) return;
@@ -78,9 +68,7 @@ function buildFilterChips() {
       if (clean) needMap.set(clean, (needMap.get(clean) || 0) + 1);
     });
   });
-  const topNeeds = [...needMap.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 12);
+  const topNeeds = [...needMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
 
   const needContainer = document.getElementById('needChips');
   needContainer.innerHTML = `<button type="button" class="chip active" data-need="ALL">すべて</button>`;
@@ -177,13 +165,23 @@ function getFilteredEvents() {
   });
 
   filtered.sort((a, b) => {
-    if (sortMode === 'cv_desc' || sortMode === 'cv_rate_desc') {
-      return b.cv - a.cv || b.totalDates - a.totalDates;
+    const appA = a.applicants ?? a.cv;
+    const appB = b.applicants ?? b.cv;
+
+    switch (sortMode) {
+      case 'cv_desc':
+        return b.cv - a.cv || appB - appA || b.totalDates - a.totalDates;
+      case 'cv_asc':
+        return a.cv - b.cv || appA - appB || b.totalDates - a.totalDates;
+      case 'app_desc':
+        return appB - appA || b.cv - a.cv || b.totalDates - a.totalDates;
+      case 'app_asc':
+        return appA - appB || a.cv - b.cv || b.totalDates - a.totalDates;
+      case 'dates_desc':
+        return b.totalDates - a.totalDates || b.cv - a.cv;
+      default:
+        return 0;
     }
-    if (sortMode === 'dates_desc') {
-      return b.totalDates - a.totalDates || b.cv - a.cv;
-    }
-    return 0;
   });
 
   return filtered;
@@ -215,11 +213,15 @@ function renderList() {
     return;
   }
 
+  const isAsc = sortMode === 'cv_asc' || sortMode === 'app_asc';
   const slice = filtered.slice(0, visibleCount);
+
   listEl.innerHTML = slice.map((ev, index) => {
     const rank = index + 1;
-    const rankClass = rank <= 3 ? `rank-${rank}` : '';
-    const rate = totalStudents > 0 ? ((ev.cv / totalStudents) * 100).toFixed(1) : '0.0';
+    // 少ない順表示のときは金銀銅メダルの装飾をつけない
+    const rankClass = (!isAsc && rank <= 3) ? `rank-${rank}` : '';
+    const applicants = ev.applicants ?? ev.cv;
+    const rate = totalStudents > 0 ? ((applicants / totalStudents) * 100).toFixed(1) : '0.0';
 
     const genresHtml = (ev.genres || [])
       .map(g => `<span class="genre-tag">${escapeHtml(g)}</span>`)
@@ -243,8 +245,8 @@ function renderList() {
         </div>
         <div class="card-body">
           <div class="card-meta-top">
-            <span class="cv-pill ${ev.cv === 0 ? 'zero' : ''}">🔥 申込 ${ev.cv}名</span>
-            ${ev.cv > 0 ? `<span class="rate-pill">全体申込率 ${rate}%</span>` : ''}
+            <span class="cv-pill ${ev.cv === 0 ? 'zero' : ''}">🔥 延べCV ${ev.cv}件</span>
+            <span class="rate-pill">👤 申込実人数 ${applicants}名（${rate}%）</span>
             ${genresHtml}
           </div>
           <h2 class="event-title">${escapeHtml(ev.title)}</h2>
